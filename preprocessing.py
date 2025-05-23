@@ -40,7 +40,17 @@ def filter_hh(all_df: pd.DataFrame, unique_hhid: list) -> pd.DataFrame:
 
 def map_df(df: pd.DataFrame, mapping_dict: dict) -> pd.DataFrame:
     for col, mapper in mapping_dict.items():
-        df[col] = df[col].map(mapper)
+        # 매핑 전 원본 값 확인
+        original_values = set(df[col].unique())
+        
+        # 매핑 수행
+        mapped_values = df[col].map(mapper)
+        
+        # 매핑된 값이 -1, 0, 1만 포함하는지 확인
+        if set(mapped_values.unique()).issubset({-1, 0, 1}):
+            df[col] = mapped_values.astype('int')
+        else:
+            df[col] = mapped_values.astype('category')
     return df
 
 def rename_df(df: pd.DataFrame, rename_dict: dict) -> pd.DataFrame:
@@ -48,15 +58,33 @@ def rename_df(df: pd.DataFrame, rename_dict: dict) -> pd.DataFrame:
     return df
 
 def onehot_df(df: pd.DataFrame, onehot_columns: list) -> pd.DataFrame:
-    df = pd.get_dummies(df, columns=onehot_columns)
-    return df
+    # 원-핫 인코딩 수행
+    df_dummies = pd.get_dummies(df, columns=onehot_columns)
+    
+    # 원-핫 인코딩된 컬럼들을 정수형으로 변환 (-1, 0, 1 가능)
+    for col in df_dummies.columns:
+        if col not in df.columns:  # 새로 생성된 원-핫 인코딩 컬럼만 처리
+            df_dummies[col] = df_dummies[col].astype('int8')  # -1, 0, 1을 저장할 수 있는 int8 사용
+    
+    return df_dummies
 
 def convert_into_int(df: pd.DataFrame) -> pd.DataFrame:
-    for col in df.columns: 
-        if df[col].dtype == 'bool' or df[col].dtype == 'object':
-            df[col] = df[col].astype('category').cat.codes
-        else:
+    for col in df.columns:
+        # # 원-핫 인코딩 컬럼인지 확인 (0과 1만 있는 컬럼)
+        # is_one_hot = df[col].nunique() <= 2 and set(df[col].unique()).issubset({0, 1})
+        
+        # 범주형 변수인 경우 (object, category, bool, 원-핫 인코딩)
+        if df[col].dtype in ['object', 'category', 'bool']: # or is_one_hot:
+            df[col] = df[col].astype('category')
+        # 불리언 변수인 경우 (True/False를 1/0으로 변환하면서 category 유지)
+        # elif df[col].dtype == 'bool':
+        #     df[col] = df[col].astype(int).astype('category')
+        # 연속형 변수인 경우 (float64, int64)
+        elif df[col].dtype in ['float64', 'int64', 'int8']:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+        # 나머지 타입은 그대로 유지
+        else:
+            continue
     return df
 
 def move_year_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -67,10 +95,17 @@ def move_year_column(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_num_years(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
     for col in target_cols:
+        # YEAR 컬럼을 정수형으로 변환
+        year_col = pd.to_numeric(df['YEAR'], errors='coerce')
+        
+        # 대상 컬럼을 정수형으로 변환
+        target_col = pd.to_numeric(df[col], errors='coerce')
+        
+        # 연도 차이 계산
         df[col] = np.where(
-            df[col].isnull(),
+            target_col.isnull(),
             -1,
-            df['YEAR'].astype('int') - df[col].fillna(0).astype('int')
+            year_col - target_col.fillna(0)
         )
     return df
 

@@ -2,13 +2,13 @@ import os
 import re
 import pandas as pd
 
-dataset_path = "data"
+dataset_path = "../data"
 codes = ['in', 'ind', 'cd', 'appen', 'hh', 'er', 'ou']
 id_columns = ['HHIDWON', 'PIDWON']
 
 def set_dataset_path() -> list:
     # Dataset 폴더 경로 설정
-    dataset_path = 'data'
+    dataset_path = '../data'
 
     # Dataset 폴더 내 파일 확인
     files = os.listdir(dataset_path)
