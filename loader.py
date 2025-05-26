@@ -2,13 +2,13 @@ import os
 import re
 import pandas as pd
 
-dataset_path = "../data"
+dataset_path = '../data/medical'
 codes = ['in', 'ind', 'cd', 'appen', 'hh', 'er', 'ou']
 id_columns = ['HHIDWON', 'PIDWON']
 
 def set_dataset_path() -> list:
     # Dataset 폴더 경로 설정
-    dataset_path = '../data'
+    dataset_path = '../data/medical'
 
     # Dataset 폴더 내 파일 확인
     files = os.listdir(dataset_path)
@@ -17,10 +17,10 @@ def set_dataset_path() -> list:
     all_files = files
     sas_files = [f for f in files if f.endswith('.sas7bdat')]
 
-    print(f"모든 파일 목록: {all_files}")
-    print(f"모든 파일 길이 수: {len(all_files)}")
-    print(f"SAS 파일 목록: {sas_files}")
-    print(f"SAS 파일 길이 수: {len(sas_files)}")
+    # print(f"모든 파일 목록: {all_files}")
+    # print(f"모든 파일 길이 수: {len(all_files)}")
+    # print(f"SAS 파일 목록: {sas_files}")
+    # print(f"SAS 파일 길이 수: {len(sas_files)}")
 
     return sas_files
 
@@ -63,7 +63,7 @@ def concat_by_code(file_dict: dict, code: str) -> pd.DataFrame:
     curr_df["YEAR"] = year
     # print(f"{file} 읽기 완료!")
     code_df = pd.concat([code_df, curr_df], axis = 0, ignore_index = True)
-    print(f"{file} concat 완료!")
+    # print(f"{file} concat 완료!")
   print(f"{code}코드 로드 완료!", "\n")
 
   return code_df

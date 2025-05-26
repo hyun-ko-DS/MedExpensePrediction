@@ -4,6 +4,7 @@ import duckdb
 from scipy import stats
 
 id_columns = ['HHIDWON', 'PIDWON']
+idx_columns = ['HHIDWON', 'PIDWON', 'YEAR']
 
 def filter_cd(df_cd: pd.DataFrame) -> pd.DataFrame:
     # ROW (당뇨병 환자) 필터링
@@ -105,7 +106,7 @@ def calculate_num_years(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
         df[col] = np.where(
             target_col.isnull(),
             -1,
-            year_col - target_col.fillna(0)
+            year_col - target_col#.fillna(0)
         )
     return df
 
@@ -237,7 +238,7 @@ def fill_na_years(df: pd.DataFrame) -> pd.DataFrame:
     
     # 범주형 컬럼의 NaN 값을 0으로 채움
     categorical_columns = result_df.select_dtypes(include=['category']).columns
-    result_df[categorical_columns] = result_df[categorical_columns].fillna(0)
+    result_df[categorical_columns] = result_df[categorical_columns].fillna(-1)
     
     # 불리언 컬럼의 NaN 값을 False로 채움
     boolean_columns = result_df.select_dtypes(include=['bool']).columns
