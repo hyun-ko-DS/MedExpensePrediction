@@ -214,17 +214,32 @@ def fill_na_vals(df:pd.DataFrame, target_cols:list[str], constant_cols:list[str]
             clean_df[col] = clean_df[col].fillna(-1)
             
         elif col in incremental_cols:  # 증가형 변수는 해당 가구원의 작년도 값 + 1 OR 내년도 값 - 1 로 대체
-            # PIDWON으로 그룹화하여 이전 값 + 1로 채우기
-            temp_forward = clean_df.groupby('PIDWON')[col].fillna(method='ffill') + 1
-            # 이전 값이 없는 경우에만 다음 값 - 1로 채우기
-            clean_df[col] = temp_forward.fillna(clean_df.groupby('PIDWON')[col].fillna(method='bfill') - 1)
+            # 이전 값과 다음 값 가져오기
+            prev_val = clean_df.groupby('PIDWON')[col].fillna(method='ffill')
+            next_val = clean_df.groupby('PIDWON')[col].fillna(method='bfill')
+            
+            # 이전 값이 -1이 아닌 경우에만 +1 적용
+            temp_forward = prev_val.where(prev_val != -1, -1)
+            temp_forward = temp_forward.where(temp_forward == -1, temp_forward + 1)
+            
+            # 다음 값이 -1이 아닌 경우에만 -1 적용
+            temp_backward = next_val.where(next_val != -1, -1)
+            temp_backward = temp_backward.where(temp_backward == -1, temp_backward - 1)
+            
+            # 이전 값으로 채우기 시도
+            clean_df[col] = temp_forward
+            
+            # 이전 값이 없는 경우에만 다음 값으로 채우기
+            clean_df[col] = clean_df[col].fillna(temp_backward)
+            
             # 그럼에도 값이 없는 경우에는 -1로 대체
             clean_df[col] = clean_df[col].fillna(-1)
             
-        elif col in numeric_continuous_cols and col not in [user_cols, incremental_cols, constant_cols]:  # 수치형 - 연속형 변수는 0으로 대체 (주로 의료 비용 관련 변수)
+        elif col in numeric_continuous_cols and col not in [user_cols, incremental_cols, constant_cols]:  # 수치형 - 연속형 변수는 해당 PIDWON의 중앙값으로 대체
             # PIDWON으로 그룹화하여 각 가구원별 중앙값으로 채우기
-            # 중앙값을 계산할 때 정수형으로 변환
-            # print(col)
+            # clean_df[col] = clean_df.groupby('PIDWON')[col].transform(
+            #     lambda x: x.fillna(round(x.dropna().median())) if x.dtype == 'Int64' and not x.dropna().empty else x.fillna(0)
+            # )
             clean_df[col] = clean_df[col].fillna(0)
 
         elif col in numeric_discrete_cols and col not in [user_cols, incremental_cols, constant_cols]: # 수치형 - 이산형 변수는 0으로 대체 (주로 원핫인코딩된 변수)
@@ -293,65 +308,6 @@ def fill_na_years(df: pd.DataFrame, constant_cols:list[str], user_cols:list[str]
     return result_df
 
 
-# 환자가, 특정 연도 데이터만 있고, 나머지는 없는 경우에도
-# 각 연도별로 데이터 행을 생성해줘야 함.
-# 없는 연도에 대해서 행을 추가하고, 그 값을 0으로 업데이트하는 함수.
-# def fill_na_years(df: pd.DataFrame) -> pd.DataFrame:
-#     """
-#     각 환자(PIDWON)별로 2014~2018년도의 모든 행이 존재하도록 채웁니다.
-#     없는 연도의 행은 0으로 채워집니다.
-    
-#     Parameters:
-#     -----------
-#     df : pandas.DataFrame
-#         입력 데이터프레임
-    
-#     Returns:
-#     --------
-#     pandas.DataFrame
-#         모든 연도가 채워진 데이터프레임
-#     """
-#     # 고유한 (HHIDWON, PIDWON) 쌍 추출
-#     unique_pairs = df[['HHIDWON', 'PIDWON']].drop_duplicates()
-    
-#     # 모든 연도 리스트
-#     all_years = [2014, 2015, 2016, 2017, 2018]
-    
-#     # 모든 조합 생성
-#     full_combinations = []
-#     for _, row in unique_pairs.iterrows():
-#         for year in all_years:
-#             full_combinations.append({
-#                 'HHIDWON': row['HHIDWON'],
-#                 'PIDWON': row['PIDWON'],
-#                 'YEAR': year
-#             })
-    
-#     # 새로운 데이터프레임 생성
-#     full_df = pd.DataFrame(full_combinations)
-    
-#     # 원본 데이터프레임과 병합
-#     result_df = pd.merge(
-#         full_df,
-#         df,
-#         on=['HHIDWON', 'PIDWON', 'YEAR'],
-#         how='left'
-#     )
-    
-#     # 숫자형 컬럼의 NaN 값을 0으로 채움
-#     numeric_columns = result_df.select_dtypes(include=['int64', 'float64']).columns
-#     result_df[numeric_columns] = result_df[numeric_columns].fillna(0)
-    
-#     # 범주형 컬럼의 NaN 값을 0으로 채움
-#     categorical_columns = result_df.select_dtypes(include=['category']).columns
-#     result_df[categorical_columns] = result_df[categorical_columns].fillna(-1)
-    
-#     # 불리언 컬럼의 NaN 값을 False로 채움
-#     boolean_columns = result_df.select_dtypes(include=['bool']).columns
-#     result_df[boolean_columns] = result_df[boolean_columns].fillna(False)
-    
-#     return result_df
-
 def get_columns_with_missing_values(df: pd.DataFrame) -> list:
     """
     데이터프레임에서 결측치가 하나라도 있는 컬럼들의 리스트를 반환합니다.
@@ -380,186 +336,3 @@ def get_columns_with_missing_values(df: pd.DataFrame) -> list:
         print(f"- {col}: {missing_count}개 ({missing_percentage:.2f}%)")
     
     return columns_with_missing
-
-# def handle_missing_values(df: pd.DataFrame, missing_cols: list) -> pd.DataFrame:
-#     """
-#     컬럼 유형별로 결측치를 적절한 값으로 대체합니다.
-    
-#     1. er, in이 포함된 컬럼: 결측치를 -1로 대체
-#     2. ou, smoking, drinking, workout, mobility, physical, depression, unavailability가 포함된 컬럼:
-#        - 같은 PIDWON의 이전 연도 값으로 대체 (ffill)
-#        - 2014년인 경우 이후 연도 값으로 대체 (bfill)
-#        - 여전히 null 값이 남아있는 경우 -1로 대체
-    
-#     Parameters:
-#     -----------
-#     df : pandas.DataFrame
-#         입력 데이터프레임
-#     missing_cols : list
-#         결측치가 있는 컬럼명 리스트
-    
-#     Returns:
-#     --------
-#     pandas.DataFrame
-#         결측치가 처리된 데이터프레임
-#     """
-#     # 1. er, in이 포함된 컬럼: 결측치를 -1로 대체
-#     er_in_cols = [col for col in missing_cols if any(x in col.lower() for x in ['er', 'in'])]
-#     df[er_in_cols] = df[er_in_cols].fillna(-1)
-    
-#     # 2. ou, smoking, drinking, workout, mobility, physical, depression, unavailability가 포함된 컬럼
-#     target_cols = [col for col in missing_cols if any(x in col.lower() for x in [
-#         'ou', 'smoking', 'drinking', 'workout', 'mobility', 
-#         'physical', 'depression', 'unavailability'
-#     ])]
-    
-#     # 연도별로 정렬된 데이터프레임 생성
-#     df_sorted = df.sort_values(['PIDWON', 'YEAR'])
-    
-#     # 각 PIDWON별로 이전 연도 값으로 채우기 (ffill)
-#     df_sorted[target_cols] = df_sorted.groupby('PIDWON')[target_cols].fillna(method='ffill')
-    
-#     # 2014년 데이터에 대해 이후 연도 값으로 채우기 (bfill)
-#     df_sorted.loc[df_sorted['YEAR'] == 2014, target_cols] = df_sorted.loc[df_sorted['YEAR'] == 2014, target_cols].fillna(method='bfill')
-    
-#     # 여전히 null 값이 남아있는 경우 -1로 대체
-#     df_sorted[target_cols] = df_sorted[target_cols].fillna(-1)
-    
-#     # 원래 순서로 되돌리기
-#     df = df_sorted.sort_index()
-    
-#     return df
-
-# def separate_categorical_columns(df: pd.DataFrame) -> tuple:
-#     """
-#     범주형 변수들을 순서형과 명목형으로 구분합니다.
-    
-#     Parameters:
-#     -----------
-#     df : pandas.DataFrame
-#         입력 데이터프레임
-    
-#     Returns:
-#     --------
-#     tuple
-#         (순서형 변수 리스트, 명목형 변수 리스트)
-#     """
-#     # ID 컬럼 제외
-#     pure_columns = list(set(df.columns.tolist()) - set(id_columns))
-    
-#     # 범주형 변수 추출
-#     categorical_cols = []
-#     for col in pure_columns:
-#         if df[col].dtype == 'object' or df[col].dtype == 'category' or df[col].nunique() < 20:
-#             categorical_cols.append(col)
-    
-#     # 순서형 변수 키워드
-#     ordinal_keywords = [
-#         'level', 'grade', 'stage', 'degree', 'rank', 'score',
-#         'income', 'education', 'age', 'year', 'month', 'day',
-#         'duration', 'period', 'time', 'count', 'number'
-#     ]
-    
-#     # 순서형과 명목형 변수 구분
-#     ordinal_cols = []
-#     nominal_cols = []
-    
-#     for col in categorical_cols:
-#         # 컬럼명에 순서형 키워드가 포함되어 있는지 확인
-#         is_ordinal = any(keyword in col.lower() for keyword in ordinal_keywords)
-        
-#         # 값의 분포 확인
-#         value_counts = df[col].value_counts()
-#         unique_values = df[col].nunique()
-        
-#         # 순서형 판단 기준:
-#         # 1. 컬럼명에 순서형 키워드가 포함되어 있거나
-#         # 2. 값이 숫자형이고 연속적인 분포를 보이거나
-#         # 3. 값의 개수가 적고 순차적인 분포를 보이는 경우
-#         if (is_ordinal or 
-#             (pd.api.types.is_numeric_dtype(df[col]) and unique_values < 10) or
-#             (unique_values < 10 and all(str(i) in value_counts.index for i in range(1, unique_values + 1)))):
-#             ordinal_cols.append(col)
-#         else:
-#             nominal_cols.append(col)
-    
-#     return ordinal_cols, nominal_cols
-
-# def analyze_correlations(df: pd.DataFrame, target_col: str) -> dict:
-#     """
-#     변수들 간의 상관관계를 분석합니다.
-    
-#     Parameters:
-#     -----------
-#     df : pandas.DataFrame
-#         입력 데이터프레임
-#     target_col : str
-#         타겟 변수명 (Y 변수)
-    
-#     Returns:
-#     --------
-#     dict
-#         각 변수별 상관분석 결과
-#     """
-#     # ID 컬럼 제외
-#     pure_columns = list(set(df.columns.tolist()) - set(id_columns + [target_col]))
-    
-#     # 연속형 변수 추출
-#     continuous_cols = []
-#     for col in pure_columns:
-#         if pd.api.types.is_numeric_dtype(df[col]) and df[col].nunique() >= 20:
-#             continuous_cols.append(col)
-    
-#     # 범주형 변수 구분
-#     ordinal_cols, nominal_cols = separate_categorical_columns(df)
-    
-#     results = {}
-    
-#     # 1. 연속형 X와 연속형 Y: Pearson 상관분석
-#     for col in continuous_cols:
-#         # 정규성 검정
-#         _, p_value = stats.normaltest(df[col].dropna())
-#         is_normal = p_value > 0.05
-        
-#         if is_normal:
-#             # Pearson 상관분석
-#             corr, p_value = stats.pearsonr(df[col].dropna(), df[target_col].dropna())
-#             results[col] = {
-#                 'type': 'continuous',
-#                 'test': 'pearson',
-#                 'correlation': corr,
-#                 'p_value': p_value
-#             }
-#         else:
-#             # 정규성 만족하지 않으면 Spearman 사용
-#             corr, p_value = stats.spearmanr(df[col].dropna(), df[target_col].dropna())
-#             results[col] = {
-#                 'type': 'continuous',
-#                 'test': 'spearman',
-#                 'correlation': corr,
-#                 'p_value': p_value
-#             }
-    
-#     # 2. 순서형 X와 연속형 Y: Spearman 상관분석
-#     for col in ordinal_cols:
-#         corr, p_value = stats.spearmanr(df[col].dropna(), df[target_col].dropna())
-#         results[col] = {
-#             'type': 'ordinal',
-#             'test': 'spearman',
-#             'correlation': corr,
-#             'p_value': p_value
-#         }
-    
-#     # 3. 명목형 X와 연속형 Y: ANOVA
-#     for col in nominal_cols:
-#         # 각 범주별 평균 계산
-#         groups = [group for _, group in df.groupby(col)[target_col]]
-#         f_stat, p_value = stats.f_oneway(*groups)
-#         results[col] = {
-#             'type': 'nominal',
-#             'test': 'anova',
-#             'f_statistic': f_stat,
-#             'p_value': p_value
-#         }
-    
-#     return results

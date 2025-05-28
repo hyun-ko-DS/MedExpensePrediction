@@ -73,7 +73,7 @@ def draw_boxplot(df, columns):
   plt.show()
 
 
-  def draw_kde_plot(df, numeric_continuous_cols):
+def draw_kde_plot(df, numeric_continuous_cols):
     plt.figure(figsize=(12, 6))
     for col in numeric_continuous_cols:
         # 데이터 정규화
