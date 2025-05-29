@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
+import pandas as pd
 
 id_columns = ['HHIDWON', 'PIDWON']
 
@@ -91,3 +92,54 @@ def draw_kde_plot(df, numeric_continuous_cols):
 
     plt.tight_layout()
     plt.show()
+
+
+def visualize_categorical_relationships(results_df):
+    # skipped된 변수 제외
+    valid_results = results_df[results_df['test'] != 'skipped']
+    
+    # 변수 개수에 따라 heatmap 개수 결정
+    total_vars = len(valid_results)
+    vars_per_plot = 10  # 각 heatmap당 10개 변수
+    num_plots = math.ceil(total_vars / vars_per_plot)
+    
+    # 각 heatmap에 medical_expense 컬럼 추가
+    for i in range(num_plots):
+        start_idx = i * vars_per_plot
+        end_idx = min((i + 1) * vars_per_plot, total_vars)
+        
+        # 현재 plot에 해당하는 변수들 선택
+        current_vars = valid_results.iloc[start_idx:end_idx]
+        
+        # 상관계수만 추출하여 데이터프레임 생성 (float 타입으로 명시적 변환)
+        correlation_df = pd.DataFrame({
+            'medical_expense': current_vars['correlation'].astype(float)
+        })
+        
+        # 상삼각 마스크 생성
+        mask = np.triu(np.ones_like(correlation_df, dtype=bool))
+        
+        # 시각화
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(correlation_df, 
+                    mask=mask,
+                    annot=True, 
+                    fmt='.2f', 
+                    cmap='coolwarm', 
+                    center=0,
+                    square=True,
+                    linewidths=.5,
+                    cbar_kws={"shrink": .5})
+        
+        plt.title(f'Correlation Strength with Medical Expense (Plot {i+1}/{num_plots})', pad=20)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.show()
+    
+    # 전체 결과 출력
+    print("\n상관관계 분석 결과:")
+    print(valid_results[['test', 'correlation', 'effect_size', 'p_value']].sort_values('correlation', ascending=False))
+    
+    return valid_results.sort_values('correlation', ascending=False)
+
