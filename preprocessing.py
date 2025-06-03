@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import duckdb
 from scipy import stats
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 id_columns = ['HHIDWON', 'PIDWON']
 idx_columns = ['HHIDWON', 'PIDWON', 'YEAR']
@@ -108,11 +110,11 @@ def calculate_num_years(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
         # 대상 컬럼을 정수형으로 변환
         target_col = pd.to_numeric(df[col], errors='coerce')
         
-        # 연도 차이 계산
-        df[col] = np.where(
-            target_col.isnull(),
-            -1,
-            year_col - target_col#.fillna(0)
+        # 각 행별로 처리
+        df[col] = df.apply(
+            lambda row: 0 if pd.isnull(row[col]) or row[col] == -1 
+            else int(row['YEAR'] - row[col]), 
+            axis=1
         )
     return df
 
@@ -336,3 +338,74 @@ def get_columns_with_missing_values(df: pd.DataFrame) -> list:
         print(f"- {col}: {missing_count}개 ({missing_percentage:.2f}%)")
     
     return columns_with_missing
+
+
+def log_transformation(df, numeric_continuous_cols, method='log1p'):
+    """
+    수치형 연속형 변수들에 대해 로그 변환을 수행하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    numeric_continuous_cols : list
+        로그 변환할 수치형 연속형 변수 리스트
+    method : str, default='log1p'
+        로그 변환 방법
+        - 'log1p': log1p 변환 (log(1+x))
+        - 'log': 일반 로그 변환 (log(x))
+        - 'log_abs': 절대값 로그 변환 (log(|x|))
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        로그 변환된 데이터프레임
+    """
+    # 원본 데이터프레임 복사
+    df_transformed = df.copy()
+    
+    # 변환 전 통계량 저장
+    print("=== 변환 전 통계량 ===")
+    print(df[numeric_continuous_cols].describe())
+    
+    # 각 변수별 로그 변환
+    for col in numeric_continuous_cols:
+        if method == 'log1p':
+            # log1p 변환 (음수, 0 값 처리)
+            df_transformed[col] = np.log1p(df[col])
+            print(f"\n{col} 변환: log1p(x)")
+            
+        elif method == 'log':
+            # 일반 로그 변환 (양수 값만)
+            mask = df[col] > 0
+            df_transformed[col] = np.log(df[col].where(mask))
+            print(f"\n{col} 변환: log(x) (x > 0)")
+            
+        elif method == 'log_abs':
+            # 절대값 로그 변환
+            df_transformed[col] = np.log(np.abs(df[col]))
+            print(f"\n{col} 변환: log(|x|)")
+            
+        else:
+            raise ValueError("method는 'log1p', 'log', 'log_abs' 중 하나여야 합니다.")
+    
+    # 변환 후 통계량 출력
+    print("\n=== 변환 후 통계량 ===")
+    print(df_transformed[numeric_continuous_cols].describe())
+    
+    # 변환 전후 분포 시각화
+    fig, axes = plt.subplots(len(numeric_continuous_cols), 2, figsize=(15, 5*len(numeric_continuous_cols)))
+    
+    for idx, col in enumerate(numeric_continuous_cols):
+        # 변환 전 분포
+        sns.histplot(data=df, x=col, ax=axes[idx, 0], kde=True)
+        axes[idx, 0].set_title(f'{col} (변환 전)')
+        
+        # 변환 후 분포
+        sns.histplot(data=df_transformed, x=col, ax=axes[idx, 1], kde=True)
+        axes[idx, 1].set_title(f'{col} (변환 후)')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    return df_transformed
