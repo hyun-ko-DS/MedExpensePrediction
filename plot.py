@@ -3,6 +3,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import math
 import pandas as pd
+from lime.lime_tabular import LimeTabularExplainer
+import random
+random.seed(42)
+np.random.seed(42)
 
 id_columns = ['HHIDWON', 'PIDWON']
 
@@ -143,3 +147,119 @@ def visualize_categorical_relationships(results_df):
     
     return valid_results.sort_values('correlation', ascending=False)
 
+
+def plot_correlation_matrix(data: pd.DataFrame, analysis_cols: list[str], 
+                            target_col: str = 'medical_expense', method: str = 'spearman'):
+    plt.figure(figsize=(12, 8))
+    correlation_matrix = data[analysis_cols + [target_col]].corr(method)
+    mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
+
+    sns.heatmap(correlation_matrix, 
+                mask=mask,
+                annot=True, 
+                fmt='.2f', 
+                cmap='coolwarm', 
+                center=0,
+                square=True,
+                linewidths=.5,
+                cbar_kws={"shrink": .5})
+    title = f'{method.upper()} Correlation Heatmap of {", ".join(analysis_cols)} vs {target_col}'
+    plt.title('Spearman Correlation Heatmap of Numeric Continuous Variables', pad=20)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+
+
+def implement_lime(model: object, X_train: pd.DataFrame, X_test: pd.DataFrame, sample_idx:int):
+    X_train_sample = X_train.copy()
+    X_test_sample = X_test.copy()
+
+    X_train_array = X_train_sample.values
+    X_test_array = X_test_sample.values
+
+    # LIME Explainer
+    explainer = LimeTabularExplainer(
+        training_data=X_train_array,
+        feature_names=X_train_sample.columns,
+        mode='regression'  # 회귀 모드
+    )
+
+    # shape를 (1, n_features)로 조정
+    instance = X_test_array[sample_idx].reshape(1, -1)
+
+    # LIME 설명 생성
+    exp = explainer.explain_instance(
+        data_row=instance[0],  # 1차원 배열로 변환
+        predict_fn=model.predict,      # 회귀 예측 함수
+        num_features=10                # 설명에 표시할 최대 Feature 수
+    )
+
+    # LIME 결과 시각화
+    exp.show_in_notebook(show_table=True)
+    return explainer, exp
+
+
+def plot_lime(exp: object):
+    # 피처 리스트 및 그에 해당하는 가중치
+    features = exp.as_list()
+
+    # 가중치 절댓값 크기에 따라 피처 정렬
+    # features.sort(key=lambda x: np.abs(x[1]), reverse=True)
+
+    # 가중치 값에 따라 피처 정렬
+    features.sort(key=lambda x: x[1], reverse=True)
+
+    # 두 리스트로 나누기
+    feature_names, feature_weights = zip(*features)
+
+    # 바 플랏 그리기
+    plt.figure(figsize=(10, 6))
+    plt.barh(feature_names, feature_weights, color='skyblue')
+    plt.xlabel('Feature Weights')
+    plt.gca().invert_yaxis()
+    plt.show()
+
+
+def explain_instance_text(explainer: object, instance: object, predict_fn: object, top_k: int = 5):
+    exp = explainer.explain_instance(instance, predict_fn=predict_fn, num_features=top_k)
+    features = exp.as_list()
+
+    explanations = []
+    for condition, weight in features:
+        effect = "증가시키는" if weight > 0 else "감소시키는"
+        # 곱셈적 영향력으로 해석
+        multiplier = np.exp(weight)
+        percentage = (multiplier - 1) * 100  # 백분율 변화로 변환
+        explanations.append(
+            f"- 조건 [{condition}] 은(는) 예측값을 약 {percentage:.1f}% {effect} 데 기여했습니다."
+        )
+    return explanations
+
+
+def plot_pi_distribution(plot_df: pd.DataFrame):
+    """
+    Prediction Interval 분포를 수평 violin plot으로 시각화하는 함수
+    
+    Parameters:
+    -----------
+    plot_df : DataFrame
+        시각화용 데이터프레임 (Model, PI Width 컬럼 포함)
+    
+    Returns:
+    --------
+    matplotlib.pyplot
+        수평 violin plot이 그려진 그래프
+    """
+    plt.figure(figsize=(10, 6))
+    sns.violinplot(data=plot_df, y='Model', x='PI Width', orient='h')
+    
+    # 그래프 꾸미기
+    plt.title('Distribution of Prediction Interval Widths by Model', pad=20)
+    plt.ylabel('Models')
+    plt.xlabel('Width of Prediction Intervals')
+    plt.xlim(left=0)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    return plt

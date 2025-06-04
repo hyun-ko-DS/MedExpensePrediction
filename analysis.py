@@ -8,8 +8,10 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from scipy import stats
-from linearmodels.panel import PanelOLS, RandomEffects, compare
+from scipy.stats import chi2_contingency, norm, pointbiserialr, kruskal, f_oneway, levene, shapiro, pearsonr, spearmanr
+from linearmodels.panel import PanelOLS, RandomEffects, compare 
 from statsmodels.tools.tools import add_constant
+from statsmodels.stats.outliers_influence import variance_inflation_factor  
 
 from preprocessing import move_year_column, move_y_column
     
@@ -512,6 +514,46 @@ def evaluate_model(y_true, y_pred, model_name, X_test):
     return mse, rmse, mae, mape, r2, adj_r2
 
 
+def apply_lasso_feature_selection(X_train: pd.DataFrame, y_train: pd.Series, alpha: float = 0.01):
+    # LASSO 모델 학습
+    lasso = Lasso(alpha=0.01)  # alpha 값은 조정 가능
+    lasso.fit(X_train, y_train)
+
+    # 특성 중요도 계산
+    feature_importance = pd.DataFrame({
+        'Feature': X_train.columns,
+        'Coefficient': lasso.coef_
+    })
+
+    # 계수 절대값 기준으로 정렬
+    feature_importance['Abs_Coefficient'] = abs(feature_importance['Coefficient'])
+    feature_importance = feature_importance.sort_values('Abs_Coefficient', ascending=False)
+
+    # 결과 출력
+    print("LASSO Feature Selection Results:")
+    print("\nTop 10 most important features:")
+    print(feature_importance.head(10))
+
+    # 시각화
+    plt.figure(figsize=(12, 6))
+    sns.barplot(data=feature_importance.head(20), 
+                x='Coefficient', 
+                y='Feature')
+    plt.title('Top 20 Features by LASSO Coefficients')
+    plt.xlabel('Coefficient Value')
+    plt.ylabel('Feature')
+    plt.tight_layout()
+    plt.show()
+
+    # 제거된 특성 확인 (계수가 0인 특성)
+    zero_features = feature_importance[feature_importance['Coefficient'] == 0]
+    print("\nFeatures removed by LASSO (coefficient = 0):")
+    print(f"Number of removed features: {len(zero_features)}")
+    print(zero_features['Feature'].tolist())
+
+    return zero_features['Feature'].tolist()
+
+
 def analyze_feature_importance(model, feature_names, top_n=20, figsize=(12, 8)):
     """
     RandomForest 모델의 Feature Importance를 분석하고 시각화하는 함수
@@ -566,3 +608,449 @@ def analyze_feature_importance(model, feature_names, top_n=20, figsize=(12, 8)):
     
     # 중요도 기준으로 정렬된 전체 특성 목록 반환
     return feature_importance
+
+
+def create_lag_columns(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    PIDWON을 기준으로 그룹핑하여 지정된 컬럼들의 lag 컬럼을 생성하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        lag 컬럼을 생성할 대상 컬럼들의 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        lag 컬럼이 추가된 데이터프레임
+    """
+    # 데이터프레임 복사
+    result_df = df.copy()
+    
+    # 연도별로 정렬
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
+    
+    # 각 대상 컬럼에 대해 1~4년 전의 lag 컬럼 생성
+    for col in target_cols:
+        for lag in range(1, 5):
+            result_df[f'{col}_lag_{lag}'] = result_df.groupby('PIDWON')[col].shift(lag)
+    
+    # lag 컬럼의 결측치를 0으로 채우기
+    lag_columns = [f'{col}_lag_{i}' for col in target_cols for i in range(1, 5)]
+    result_df[lag_columns] = result_df[lag_columns].fillna(0).astype('float32')
+    
+    return result_df
+
+
+def create_rolling_features(df: pd.DataFrame, target_cols: list, windows: list = [2, 3]) -> pd.DataFrame:
+    """
+    지정된 컬럼들에 대해 rolling statistics를 생성하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        rolling statistics를 생성할 대상 컬럼들의 리스트
+    windows : list
+        rolling window 크기 리스트 (기본값: [2, 3])
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        rolling statistics가 추가된 데이터프레임
+    """
+    result_df = df.copy()
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
+    
+    for col in target_cols:
+        for window in windows:
+            # 이동 평균
+            result_df[f'{col}_rolling_mean_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).mean().astype('float32')
+            )
+            # 이동 표준편차
+            result_df[f'{col}_rolling_std_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).std().astype('float32')
+            )
+            # 이동 최대값
+            result_df[f'{col}_rolling_max_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).max().astype('float32')
+            )
+            # 이동 최소값
+            result_df[f'{col}_rolling_min_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).min().astype('float32')
+            )
+    
+    return result_df
+
+
+def create_cumulative_features(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    지정된 컬럼들에 대해 cumulative statistics를 생성하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        cumulative statistics를 생성할 대상 컬럼들의 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        cumulative statistics가 추가된 데이터프레임
+    """
+    result_df = df.copy()
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
+    
+    for col in target_cols:
+        # 누적 합계
+        result_df[f'{col}_cumsum'] = result_df.groupby('PIDWON')[col].cumsum().astype('float32')
+        # 누적 평균
+        result_df[f'{col}_cummean'] = result_df.groupby('PIDWON')[col].transform(
+            lambda x: x.expanding().mean()
+        ).astype('float32')
+        # 누적 표준편차
+        result_df[f'{col}_cumstd'] = result_df.groupby('PIDWON')[col].transform(
+            lambda x: x.expanding().std()
+        ).astype('float32')
+    
+    return result_df
+
+
+def create_yoy_features(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    지정된 컬럼들에 대해 전년 대비 변화율을 계산하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        변화율을 계산할 대상 컬럼들의 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        변화율이 추가된 데이터프레임
+    """
+    result_df = df.copy()
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
+    
+    for col in target_cols:
+        # 전년 대비 절대적 변화
+        result_df[f'{col}_yoy_diff'] = result_df.groupby('PIDWON')[col].diff().astype('float32')
+        # 전년 대비 변화율 (%)
+        result_df[f'{col}_yoy_pct'] = result_df.groupby('PIDWON')[col].pct_change() * 100#.astype('float32')
+    
+    return result_df
+
+
+def create_time_aggregations(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    지정된 컬럼들에 대해 시간 기반 집계를 생성하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        집계를 생성할 대상 컬럼들의 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        시간 기반 집계가 추가된 데이터프레임
+    """
+    result_df = df.copy()
+    
+    for col in target_cols:
+        # 전체 기간 평균
+        result_df[f'{col}_all_time_mean'] = result_df.groupby('PIDWON')[col].transform('mean').astype('float32')
+        # 전체 기간 표준편차
+        result_df[f'{col}_all_time_std'] = result_df.groupby('PIDWON')[col].transform('std').astype('float32')
+        # 전체 기간 최대값
+        result_df[f'{col}_all_time_max'] = result_df.groupby('PIDWON')[col].transform('max').astype('float32')
+        # 전체 기간 최소값
+        result_df[f'{col}_all_time_min'] = result_df.groupby('PIDWON')[col].transform('min').astype('float32')
+    
+    return result_df
+
+
+def handle_abnormal_values(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna(0, inplace=True)
+    return df
+                        
+
+def analyze_linear_coefficients(model, feature_names, top_n=20, figsize=(12, 8), title_prefix="Linear Regression"):
+    """
+    선형 회귀 모델의 회귀 계수를 분석하고 시각화하는 함수
+
+    Parameters:
+    -----------
+    model : sklearn.linear_model.LinearRegression or statsmodels 결과 객체
+        학습된 선형 회귀 모델
+    feature_names : list
+        특성 이름 리스트
+    top_n : int
+        절댓값 기준 상위 N개의 계수를 시각화 (기본값: 20)
+    figsize : tuple
+        그래프 크기
+    title_prefix : str
+        그래프 제목 앞에 붙일 텍스트
+
+    Returns:
+    --------
+    pandas.DataFrame
+        회귀 계수 정리된 데이터프레임
+    """
+    # 계수 추출
+    if hasattr(model, 'coef_'):
+        # sklearn 계열
+        coefs = model.coef_
+    elif hasattr(model, 'params'):
+        # statsmodels 계열
+        coefs = model.params.values
+    else:
+        raise ValueError("모델 객체가 회귀 계수를 제공하지 않습니다.")
+
+    # 데이터프레임으로 구성
+    coef_df = pd.DataFrame({
+        'feature': feature_names,
+        'coefficient': coefs
+    })
+    
+    # 절댓값 기준 상위 N개 추출
+    top_coef = coef_df.reindex(coef_df.coefficient.abs().sort_values(ascending=False).index).head(top_n)
+
+    # 시각화
+    plt.figure(figsize=figsize)
+    sns.barplot(x='coefficient', y='feature', data=top_coef, palette='coolwarm')
+    plt.axvline(0, color='black', linewidth=1)
+    plt.title(f'{title_prefix}: Top {top_n} Coefficients', pad=20)
+    plt.xlabel('Coefficient')
+    plt.ylabel('Feature')
+    plt.tight_layout()
+    plt.show()
+    
+    # 계수 통계 출력
+    print("\nCoefficient 통계:")
+    print(coef_df['coefficient'].describe())
+    
+    # 전체 계수 정렬 반환
+    return coef_df.sort_values('coefficient', key=abs, ascending=False)
+
+
+def calculate_pi(model, X_train, y_train, X_test, alpha=0.05):
+    """
+    예측값의 Prediction Interval (PI)를 계산하는 함수
+    
+    Parameters:
+    -----------
+    model : fitted model
+        학습된 모델 (fit 완료)
+    X_train : pd.DataFrame
+        학습 입력 데이터
+    y_train : pd.Series or np.array
+        학습 정답값
+    X_test : pd.DataFrame
+        테스트 입력 데이터
+    alpha : float
+        유의수준 (기본값: 0.05 → 95% PI)
+        
+    Returns:
+    --------
+    tuple : (예측값, 하한값, 상한값)
+        각 테스트 샘플에 대한 예측값과 95% Prediction Interval
+    """
+    # 1. 테스트 예측값
+    y_pred = model.predict(X_test)
+    
+    # 2. 학습 예측값과 잔차
+    y_train_pred = model.predict(X_train)
+    residuals = y_train - y_train_pred
+    
+    # 3. 잔차의 표준편차
+    resid_std = np.std(residuals)
+    
+    # 4. z-score (95% 기준)
+    z = norm.ppf(1 - alpha/2)  # e.g., 1.96 for 95%
+    
+    # 5. Prediction Interval
+    pi_lower = y_pred - z * resid_std
+    pi_upper = y_pred + z * resid_std
+    
+    return y_pred, pi_lower, pi_upper
+
+
+
+# # 예측값 앙상블
+# ensemble_pred = (rf_pred + lgb_pred + xgb_pred) / 3
+
+# 부트스트래핑 기반 앙상블 Prediction Interval
+def calculate_ensemble_pi(models: dict, X_test: pd.DataFrame, n_bootstrap: int = 1000, alpha: float = 0.05):
+    preds = []
+
+    for _ in range(n_bootstrap):
+        idx = np.random.choice(len(X_test), size=len(X_test), replace=True)
+        X_sample = X_test.iloc[idx]
+
+        # 각 모델의 예측 평균
+        pred_rf = models['rf'].predict(X_sample)
+        pred_lgb = models['lgb'].predict(X_sample)
+        pred_xgb = models['xgb'].predict(X_sample)
+
+        ensemble_pred = (pred_rf + pred_lgb + pred_xgb) / 3
+        preds.append(ensemble_pred)
+
+    preds = np.array(preds)
+
+    lower = np.percentile(preds, 2.5, axis=0)
+    upper = np.percentile(preds, 97.5, axis=0)
+    point = ((pred_rf + pred_lgb + pred_xgb) / 3)
+
+    return point, lower, upper
+
+
+def plot_prediction_pi(results: pd.DataFrame, index: int, figsize=(12, 6)):
+    """
+    특정 인덱스의 예측값과 Prediction Interval을 수평 방향으로 시각화하는 함수
+    """
+
+    # 모델별 색상 정의
+    colors = {
+        'Linear Regression': '#1f77b4',  # 파란색
+        'RandomForest': '#ff7f0e',       # 주황색
+        'XGBoost': '#2ca02c',            # 초록색
+        'LightGBM': '#d62728',           # 빨간색
+        # 'Ensemble': '#9467bd'            # 보라색
+    }
+
+    # 모델별 접두사
+    model_prefixes = {
+        'Linear Regression': 'lr',
+        'RandomForest': 'rf',
+        'XGBoost': 'xgb',
+        'LightGBM': 'lgb',
+        # 'Ensemble': 'ensemble'
+    }
+
+    # 그래프 생성
+    plt.figure(figsize=figsize)
+    y_positions = np.arange(len(model_prefixes))
+
+    for i, (model_name, prefix) in enumerate(model_prefixes.items()):
+        lower = results.loc[index, f'{prefix}_lower_pi']
+        upper = results.loc[index, f'{prefix}_upper_pi']
+        pred = results.loc[index, f'{prefix}_prediction']
+
+        # 수평 Prediction Interval
+        plt.hlines(
+            y=i, xmin=lower, xmax=upper,
+            colors=colors[model_name], alpha=0.4, linewidth=8,
+            label=f'{model_name} PI'
+        )
+
+        # 예측값 점
+        plt.scatter(
+            pred, i,
+            color=colors[model_name],
+            s=100,
+            edgecolor='black',
+            label=f'{model_name} Prediction'
+        )
+
+    # 실제값 수직선
+    plt.axvline(
+        x=results.loc[index, 'actual'],
+        color='black',
+        linestyle='--',
+        linewidth=1.5,
+        label='Actual Value'
+    )
+
+    # 꾸미기
+    plt.title(f'Predictions and 95% Prediction Intervals for Index {index}', pad=20)
+    plt.xlabel('Medical Expense')
+    plt.ylabel('Models')
+    plt.yticks(y_positions, model_prefixes.keys())
+    plt.grid(True, axis='x', alpha=0.3)
+    plt.xlim(left=0)
+
+    # 범례 (중복 제거 없이 전체 표시)
+    handles, labels = plt.gca().get_legend_handles_labels()
+    combined = list(zip(labels, handles))
+    seen = set()
+    unique = [(l, h) for l, h in combined if not (l in seen or seen.add(l))]
+    plt.legend([h for l, h in unique], [l for l, h in unique], bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.tight_layout()
+    plt.show()
+
+
+def calculate_pi_statistics(results: pd.DataFrame):
+    """
+    각 모델의 Prediction Interval 통계를 계산하는 함수
+    
+    Parameters:
+    -----------
+    results : DataFrame
+        예측값과 Prediction Interval이 포함된 데이터프레임
+    
+    Returns:
+    --------
+    tuple
+        (통계 데이터프레임, 시각화용 데이터프레임)
+    """
+    # 모델별 컬럼 접두사
+    model_prefixes = {
+        'Linear Regression': 'lr',
+        'RandomForest': 'rf',
+        'XGBoost': 'xgb',
+        'LightGBM': 'lgb'
+    }
+    
+    # 통계 계산을 위한 딕셔너리
+    pi_stats = {}
+    
+    # 시각화용 데이터 준비
+    pi_widths = []
+    model_names = []
+    
+    for model_name, prefix in model_prefixes.items():
+        # PI 너비 계산
+        pi_width = results[f'{prefix}_upper_pi'] - results[f'{prefix}_lower_pi']
+        
+        # 통계 계산
+        pi_stats[model_name] = {
+            'Mean PI Width': round(pi_width.mean(), 2),
+            'Std PI Width': round(pi_width.std(), 2),
+            'Min PI Width': round(pi_width.min(), 2),
+            'Max PI Width': round(pi_width.max(), 2),
+            'Median PI Width': round(pi_width.median(), 2)
+        }
+        
+        # 시각화용 데이터 추가
+        pi_widths.extend(pi_width)
+        model_names.extend([model_name] * len(pi_width))
+    
+    # 통계 데이터프레임 생성
+    stats_df = pd.DataFrame(pi_stats).T
+    stats_df = stats_df[['Mean PI Width', 'Std PI Width', 'Min PI Width', 'Max PI Width', 'Median PI Width']]
+    
+    # 시각화용 데이터프레임 생성
+    plot_df = pd.DataFrame({
+        'Model': model_names,
+        'PI Width': pi_widths
+    })
+    
+    return stats_df, plot_df
+
+
+
+
