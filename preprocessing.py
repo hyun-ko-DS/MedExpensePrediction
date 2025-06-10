@@ -8,13 +8,30 @@ import seaborn as sns
 id_columns = ['HHIDWON', 'PIDWON']
 idx_columns = ['HHIDWON', 'PIDWON', 'YEAR']
 
-def filter_cd(df_cd: pd.DataFrame) -> pd.DataFrame:
+#############################################
+# 1. 데이터 필터링 함수들
+#############################################
+
+def filter_cd(df_cd: pd.DataFrame) -> tuple[pd.DataFrame, list, list]:
+    """
+    당뇨병 환자 데이터를 필터링하는 함수
+    
+    Parameters:
+    -----------
+    df_cd : pandas.DataFrame
+        만성질환 데이터프레임
+    
+    Returns:
+    --------
+    tuple
+        (필터링된 데이터프레임, 고유한 가구 ID 리스트, 고유한 환자 ID 리스트)
+    """
     # ROW (당뇨병 환자) 필터링
-    filtered_df_cd = df_cd[(df_cd['CD3_2'] == 1) & (df_cd['CDNUM'] == 2)]#.reset_index()
+    filtered_df_cd = df_cd[(df_cd['CD3_2'] == 1) & (df_cd['CDNUM'] == 2)]
     filtered_df_cd.index = [i for i in range(0, len(filtered_df_cd))]
 
-    unique_hhid = filtered_df_cd['HHIDWON'].unique() # 당뇨병 진단받은 환자들의 가구 ID
-    unique_pid = filtered_df_cd['PIDWON'].unique() # 당뇨병 진단받은 환자들의 ID. / PIDWON = HHIDWON + PID
+    unique_hhid = filtered_df_cd['HHIDWON'].unique()  # 당뇨병 진단받은 환자들의 가구 ID
+    unique_pid = filtered_df_cd['PIDWON'].unique()    # 당뇨병 진단받은 환자들의 ID
 
     # 필터링 여부 재확인
     print(f"CD3_2(의사진단여부) 컬럼 내 unique 값 = {filtered_df_cd['CD3_2'].unique()}")
@@ -27,6 +44,23 @@ def filter_cd(df_cd: pd.DataFrame) -> pd.DataFrame:
     return filtered_df_cd, unique_hhid, unique_pid
 
 def filter_rest(all_df: pd.DataFrame, unique_hhid: list, unique_pid: list) -> pd.DataFrame:
+    """
+    환자 ID를 기준으로 데이터를 필터링하는 함수
+    
+    Parameters:
+    -----------
+    all_df : pandas.DataFrame
+        전체 데이터프레임
+    unique_hhid : list
+        고유한 가구 ID 리스트
+    unique_pid : list
+        고유한 환자 ID 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        필터링된 데이터프레임
+    """
     filtered_df = all_df[all_df['PIDWON'].isin(unique_pid)]
 
     print(f"필터링 이전 대비 이후 환자 데이터셋 크기 비율 = {(len(filtered_df) / len(all_df)):.4f}")
@@ -35,13 +69,47 @@ def filter_rest(all_df: pd.DataFrame, unique_hhid: list, unique_pid: list) -> pd
     return filtered_df
 
 def filter_hh(all_df: pd.DataFrame, unique_hhid: list) -> pd.DataFrame:
+    """
+    가구 ID를 기준으로 데이터를 필터링하는 함수
+    
+    Parameters:
+    -----------
+    all_df : pandas.DataFrame
+        전체 데이터프레임
+    unique_hhid : list
+        고유한 가구 ID 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        필터링된 데이터프레임
+    """
     filtered_df = all_df[all_df['HHIDWON'].isin(unique_hhid)]
 
     print(f"필터링 된 데이터셋 내의 unique 가구 ID의 수 = {len(unique_hhid)}")
     print(f"필터링 이전 대비 이후 환자 데이터셋 크기 비율 = {(len(filtered_df) / len(all_df)):.4f}")
     return filtered_df
 
+#############################################
+# 2. 데이터 변환 함수들
+#############################################
+
 def map_df(df: pd.DataFrame, mapping_dict: dict) -> pd.DataFrame:
+    """
+    데이터프레임의 컬럼들을 매핑하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    mapping_dict : dict
+        컬럼별 매핑 딕셔너리
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        매핑된 데이터프레임
+    """
     for col, mapper in mapping_dict.items():
         # 매핑 전 원본 값 확인
         original_values = set(df[col].unique())
@@ -57,10 +125,40 @@ def map_df(df: pd.DataFrame, mapping_dict: dict) -> pd.DataFrame:
     return df
 
 def rename_df(df: pd.DataFrame, rename_dict: dict) -> pd.DataFrame:
+    """
+    데이터프레임의 컬럼명을 변경하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    rename_dict : dict
+        컬럼명 변경 딕셔너리
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        컬럼명이 변경된 데이터프레임
+    """
     df.rename(columns=rename_dict, inplace=True)
     return df
 
 def onehot_df(df: pd.DataFrame, onehot_columns: list) -> pd.DataFrame:
+    """
+    범주형 변수들을 원-핫 인코딩하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    onehot_columns : list
+        원-핫 인코딩할 컬럼 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        원-핫 인코딩된 데이터프레임
+    """
     # 원-핫 인코딩 수행
     df_dummies = pd.get_dummies(df, columns=onehot_columns)
     
@@ -72,16 +170,23 @@ def onehot_df(df: pd.DataFrame, onehot_columns: list) -> pd.DataFrame:
     return df_dummies
 
 def convert_into_int(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    데이터프레임의 컬럼들을 적절한 정수형으로 변환하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        변환된 데이터프레임
+    """
     for col in df.columns:
-        # # 원-핫 인코딩 컬럼인지 확인 (0과 1만 있는 컬럼)
-        # is_one_hot = df[col].nunique() <= 2 and set(df[col].unique()).issubset({0, 1})
-        
-        # 범주형 변수인 경우 (object, category, bool, 원-핫 인코딩)
-        if df[col].dtype in ['object', 'category', 'bool']: # or is_one_hot:
+        # 범주형 변수인 경우 (object, category, bool)
+        if df[col].dtype in ['object', 'category', 'bool']:
             df[col] = df[col].astype('category')
-        # 불리언 변수인 경우 (True/False를 1/0으로 변환하면서 category 유지)
-        # elif df[col].dtype == 'bool':
-        #     df[col] = df[col].astype(int).astype('category')
         # 연속형 변수인 경우 (float64, int64)
         elif df[col].dtype in ['float64', 'int64', 'int8']:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -90,19 +195,82 @@ def convert_into_int(df: pd.DataFrame) -> pd.DataFrame:
             continue
     return df
 
+def convert_won(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    금액 컬럼들을 원 단위로 변환하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        변환할 컬럼 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        변환된 데이터프레임
+    """
+    for col in target_cols:
+        df[col] *= 10000
+    return df
+
+#############################################
+# 3. 데이터 구조 조작 함수들
+#############################################
+
 def move_year_column(df: pd.DataFrame) -> pd.DataFrame:
-    # YEAR 컬럼을 가장 오른쪽으로 이동
+    """
+    YEAR 컬럼을 데이터프레임의 마지막으로 이동하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        YEAR 컬럼이 마지막으로 이동된 데이터프레임
+    """
     year_col = df.pop('YEAR')  # YEAR 컬럼 제거하고 저장
     df['YEAR'] = year_col      # 맨 뒤에 추가
     return df
 
 def move_y_column(df: pd.DataFrame) -> pd.DataFrame:
-    # YEAR 컬럼을 가장 오른쪽으로 이동
+    """
+    medical_expense 컬럼을 데이터프레임의 마지막으로 이동하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        medical_expense 컬럼이 마지막으로 이동된 데이터프레임
+    """
     y_col = df.pop('medical_expense')  # medical_expense 컬럼 제거하고 저장
     df['medical_expense'] = y_col      # 맨 뒤에 추가
     return df
 
 def calculate_num_years(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    특정 컬럼들의 연도 차이를 계산하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        연도 차이를 계산할 컬럼 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        연도 차이가 계산된 데이터프레임
+    """
     for col in target_cols:
         # YEAR 컬럼을 정수형으로 변환
         year_col = pd.to_numeric(df['YEAR'], errors='coerce')
@@ -118,33 +286,27 @@ def calculate_num_years(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
         )
     return df
 
-def convert_won(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
-    for col in target_cols:
-        df[col] *= 10000
-    return df
-
 def map_dataframes(df_cd: pd.DataFrame, df_ind: pd.DataFrame, df_hh: pd.DataFrame, 
-                   df_er: pd.DataFrame, df_ou: pd.DataFrame, df_appen: pd.DataFrame, 
-                   df_in: pd.DataFrame) -> pd.DataFrame:
+                  df_er: pd.DataFrame, df_ou: pd.DataFrame, df_appen: pd.DataFrame, 
+                  df_in: pd.DataFrame) -> pd.DataFrame:
     """
-    여러 데이터프레임을 PIDWON과 YEAR를 기준으로 매핑합니다.
-    final_df_hh는 HHIDWON과 YEAR를 기준으로 매핑됩니다.
+    여러 데이터프레임을 PIDWON과 YEAR를 기준으로 매핑하는 함수
     
     Parameters:
     -----------
-    final_df_cd : pandas.DataFrame
-        기준이 되는 데이터프레임
-    final_df_ind : pandas.DataFrame
+    df_cd : pandas.DataFrame
+        만성질환 데이터프레임
+    df_ind : pandas.DataFrame
         개인 정보 데이터프레임
-    final_df_hh : pandas.DataFrame
+    df_hh : pandas.DataFrame
         가구 정보 데이터프레임
-    final_df_er : pandas.DataFrame
+    df_er : pandas.DataFrame
         응급실 데이터프레임
-    final_df_ou : pandas.DataFrame
+    df_ou : pandas.DataFrame
         외래진료 데이터프레임
-    final_df_appen : pandas.DataFrame
+    df_appen : pandas.DataFrame
         부가진료 데이터프레임
-    final_df_in : pandas.DataFrame
+    df_in : pandas.DataFrame
         입원 데이터프레임
     
     Returns:
@@ -194,82 +356,113 @@ def map_dataframes(df_cd: pd.DataFrame, df_ind: pd.DataFrame, df_hh: pd.DataFram
     
     return result_df
 
+#############################################
+# 4. 결측치 처리 함수들
+#############################################
 
-def fill_na_vals(df:pd.DataFrame, target_cols:list[str], constant_cols:list[str], user_cols:list[str], incremental_cols:list[str],
-                 categorical_nominal_cols:list[str], categorical_ordinal_cols:list[str], numeric_continuous_cols:list[str], numeric_discrete_cols:list[str]) -> pd.DataFrame:
-    
-    clean_df = df.copy()
-    for col in target_cols:
-        # print(col)
-        if col in constant_cols:  # 수치형 - 상수형 변수는 해당 가구원의 중앙값으로 대체
-            # PIDWON으로 그룹화하여 각 가구원별 중앙값으로 채우기
-            # 중앙값을 계산할 때 정수형으로 변환
-            clean_df[col] = clean_df.groupby('PIDWON')[col].transform(
-                lambda x: x.fillna(int(x.median())) if x.dtype == 'Int64' else x.fillna(x.median())
-            )
-        elif col in user_cols:  # 가구원 고유의 변수 (키, 몸무게, bmi)는 이전 데이터 값으로 대체
-            # PIDWON으로 그룹화하여 이전 값으로 채우기
-            temp_forward = clean_df.groupby('PIDWON')[col].fillna(method='ffill')
-            # 이전 값이 없는 경우에만 다음 값으로 채우기
-            clean_df[col] = temp_forward.fillna(clean_df.groupby('PIDWON')[col].fillna(method='bfill'))
-            # 그럼에도 값이 없는 경우에는 -1로 대체
-            clean_df[col] = clean_df[col].fillna(-1)
-            
-        elif col in incremental_cols:  # 증가형 변수는 해당 가구원의 작년도 값 + 1 OR 내년도 값 - 1 로 대체
-            # 이전 값과 다음 값 가져오기
-            prev_val = clean_df.groupby('PIDWON')[col].fillna(method='ffill')
-            next_val = clean_df.groupby('PIDWON')[col].fillna(method='bfill')
-            
-            # 이전 값이 -1이 아닌 경우에만 +1 적용
-            temp_forward = prev_val.where(prev_val != -1, -1)
-            temp_forward = temp_forward.where(temp_forward == -1, temp_forward + 1)
-            
-            # 다음 값이 -1이 아닌 경우에만 -1 적용
-            temp_backward = next_val.where(next_val != -1, -1)
-            temp_backward = temp_backward.where(temp_backward == -1, temp_backward - 1)
-            
-            # 이전 값으로 채우기 시도
-            clean_df[col] = temp_forward
-            
-            # 이전 값이 없는 경우에만 다음 값으로 채우기
-            clean_df[col] = clean_df[col].fillna(temp_backward)
-            
-            # 그럼에도 값이 없는 경우에는 -1로 대체
-            clean_df[col] = clean_df[col].fillna(-1)
-            
-        elif col in numeric_continuous_cols and col not in [user_cols, incremental_cols, constant_cols]:  # 수치형 - 연속형 변수는 해당 PIDWON의 중앙값으로 대체
-            # PIDWON으로 그룹화하여 각 가구원별 중앙값으로 채우기
-            # clean_df[col] = clean_df.groupby('PIDWON')[col].transform(
-            #     lambda x: x.fillna(round(x.dropna().median())) if x.dtype == 'Int64' and not x.dropna().empty else x.fillna(0)
-            # )
-            clean_df[col] = clean_df[col].fillna(0)
-
-        elif col in numeric_discrete_cols and col not in [user_cols, incremental_cols, constant_cols]: # 수치형 - 이산형 변수는 0으로 대체 (주로 원핫인코딩된 변수)
-            clean_df[col] = clean_df[col].fillna(0)
-            
-        elif col in categorical_nominal_cols:  # 범주형 - 명목형 변수는 해당 가구원의 최빈값으로 대체
-            # PIDWON으로 그룹화하여 각 가구원별 최빈값으로 채우기
-            clean_df[col] = clean_df.groupby('PIDWON')[col].transform(lambda x: x.fillna(x.mode()[0] if not x.mode().empty else x.mode()))
-            # 그럼에도 결측치가 있는 경우에는, -1로 대체
-            clean_df[col] = clean_df[col].fillna(-1)
-            
-        elif col in categorical_ordinal_cols:  # 범주형 - 순서형 변수는 0으로 대체
-            # PIDWON으로 그룹화하여 각 가구원별 0으로 채우기
-            clean_df[col] = clean_df[col].fillna(-1)
-
-    return clean_df
-
-
-def fill_na_years(df: pd.DataFrame, constant_cols:list[str], user_cols:list[str], incremental_cols:list[str],
-                 categorical_nominal_cols:list[str], categorical_ordinal_cols:list[str], numeric_continuous_cols:list[str], numeric_discrete_cols:list[str]) -> pd.DataFrame:
+def fill_na_vals(df: pd.DataFrame, target_cols: list[str], constant_cols: list[str], 
+                user_cols: list[str], incremental_cols: list[str],
+                categorical_nominal_cols: list[str], categorical_ordinal_cols: list[str], 
+                numeric_continuous_cols: list[str], numeric_discrete_cols: list[str]) -> pd.DataFrame:
     """
-    각 환자(PIDWON)별로 2014~2018년도의 모든 행이 존재하도록 채웁니다.
-    없는 연도의 행은 0으로 채워집니다.
+    결측치를 변수 유형에 따라 적절히 채우는 함수
     
     Parameters:
     -----------
     df : pandas.DataFrame
         입력 데이터프레임
+    target_cols : list[str]
+        처리할 컬럼 리스트
+    constant_cols : list[str]
+        상수형 변수 리스트
+    user_cols : list[str]
+        사용자 특성 변수 리스트
+    incremental_cols : list[str]
+        증가형 변수 리스트
+    categorical_nominal_cols : list[str]
+        명목형 변수 리스트
+    categorical_ordinal_cols : list[str]
+        순서형 변수 리스트
+    numeric_continuous_cols : list[str]
+        연속형 변수 리스트
+    numeric_discrete_cols : list[str]
+        이산형 변수 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        결측치가 채워진 데이터프레임
+    """
+    clean_df = df.copy()
+    for col in target_cols:
+        if col in constant_cols:  # 수치형 - 상수형 변수는 해당 가구원의 중앙값으로 대체
+            clean_df[col] = clean_df.groupby('PIDWON')[col].transform(
+                lambda x: x.fillna(int(x.median())) if x.dtype == 'Int64' else x.fillna(x.median())
+            )
+        elif col in user_cols:  # 가구원 생애주기에 따라 고정될 것으로 파악되는 변수는 이전 데이터 값으로 대체
+            temp_forward = clean_df.groupby('PIDWON')[col].fillna(method='ffill')
+            clean_df[col] = temp_forward.fillna(clean_df.groupby('PIDWON')[col].fillna(method='bfill'))
+            clean_df[col] = clean_df[col].fillna(-1)
+            
+        elif col in incremental_cols:  # 증가형 변수는 해당 가구원의 작년도 값 + 1 OR 내년도 값 - 1 로 대체
+            prev_val = clean_df.groupby('PIDWON')[col].fillna(method='ffill')
+            next_val = clean_df.groupby('PIDWON')[col].fillna(method='bfill')
+            
+            temp_forward = prev_val.where(prev_val != -1, -1)
+            temp_forward = temp_forward.where(temp_forward == -1, temp_forward + 1)
+            
+            temp_backward = next_val.where(next_val != -1, -1)
+            temp_backward = temp_backward.where(temp_backward == -1, temp_backward - 1)
+            
+            clean_df[col] = temp_forward
+            clean_df[col] = clean_df[col].fillna(temp_backward)
+            clean_df[col] = clean_df[col].fillna(-1)
+            
+        elif col in numeric_continuous_cols and col not in [user_cols, incremental_cols, constant_cols]:
+            clean_df[col] = clean_df[col].fillna(0)
+
+        elif col in numeric_discrete_cols and col not in [user_cols, incremental_cols, constant_cols]:
+            clean_df[col] = clean_df[col].fillna(0)
+            
+        elif col in categorical_nominal_cols and col not in [user_cols, incremental_cols, constant_cols]:
+            clean_df[col] = clean_df.groupby('PIDWON')[col].transform(
+                lambda x: x.fillna(x.mode()[0] if not x.mode().empty else x.mode())
+            )
+            clean_df[col] = clean_df[col].fillna(-1)
+            
+        elif col in categorical_ordinal_cols and col not in [user_cols, incremental_cols, constant_cols]:
+            clean_df[col] = clean_df.groupby('PIDWON')[col].transform(
+                lambda x: x.fillna(x.mode()[0] if not x.mode().empty else x.mode())
+            )
+            clean_df[col] = clean_df[col].fillna(-1)
+
+    return clean_df
+
+def fill_na_years(df: pd.DataFrame, constant_cols: list[str], user_cols: list[str], 
+                 incremental_cols: list[str], categorical_nominal_cols: list[str], 
+                 categorical_ordinal_cols: list[str], numeric_continuous_cols: list[str], 
+                 numeric_discrete_cols: list[str]) -> pd.DataFrame:
+    """
+    각 환자별로 2014~2018년도의 모든 행이 존재하도록 채우는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    constant_cols : list[str]
+        상수형 변수 리스트
+    user_cols : list[str]
+        사용자 특성 변수 리스트
+    incremental_cols : list[str]
+        증가형 변수 리스트
+    categorical_nominal_cols : list[str]
+        명목형 변수 리스트
+    categorical_ordinal_cols : list[str]
+        순서형 변수 리스트
+    numeric_continuous_cols : list[str]
+        연속형 변수 리스트
+    numeric_discrete_cols : list[str]
+        이산형 변수 리스트
     
     Returns:
     --------
@@ -302,17 +495,12 @@ def fill_na_years(df: pd.DataFrame, constant_cols:list[str], user_cols:list[str]
         on=['HHIDWON', 'PIDWON', 'YEAR'],
         how='left'
     )
-    # print(result_df)
-
-    # result_df_full = fill_na_vals(result_df, list(result_df.columns), constant_cols, user_cols, incremental_cols,
-    #              categorical_nominal_cols, categorical_ordinal_cols, numeric_continuous_cols, numeric_discrete_cols)
     
     return result_df
 
-
 def get_columns_with_missing_values(df: pd.DataFrame) -> list:
     """
-    데이터프레임에서 결측치가 하나라도 있는 컬럼들의 리스트를 반환합니다.
+    데이터프레임에서 결측치가 하나라도 있는 컬럼들의 리스트를 반환하는 함수
     
     Parameters:
     -----------
@@ -339,8 +527,11 @@ def get_columns_with_missing_values(df: pd.DataFrame) -> list:
     
     return columns_with_missing
 
+#############################################
+# 5. 데이터 변환 및 정규화 함수들
+#############################################
 
-def log_transformation(df, numeric_continuous_cols, method='log1p'):
+def log_transformation(df: pd.DataFrame, numeric_continuous_cols: list, method: str = 'log1p') -> pd.DataFrame:
     """
     수치형 연속형 변수들에 대해 로그 변환을 수행하는 함수
     
@@ -371,18 +562,15 @@ def log_transformation(df, numeric_continuous_cols, method='log1p'):
     # 각 변수별 로그 변환
     for col in numeric_continuous_cols:
         if method == 'log1p':
-            # log1p 변환 (음수, 0 값 처리)
             df_transformed[col] = np.log1p(df[col])
             print(f"\n{col} 변환: log1p(x)")
             
         elif method == 'log':
-            # 일반 로그 변환 (양수 값만)
             mask = df[col] > 0
             df_transformed[col] = np.log(df[col].where(mask))
             print(f"\n{col} 변환: log(x) (x > 0)")
             
         elif method == 'log_abs':
-            # 절대값 로그 변환
             df_transformed[col] = np.log(np.abs(df[col]))
             print(f"\n{col} 변환: log(|x|)")
             

@@ -15,16 +15,56 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from preprocessing import move_year_column, move_y_column
     
-
-
-
 id_columns = ['HHIDWON', 'PIDWON']
+plot_path = 'plots'
 
-def check_columns(df):
-  print(f"<데이터 전체 관찰값 개수 = {len(df)}>", "\n")
-  for col in df.columns:
-    print(f"{col}: 관찰값 개수 = {len(df[col])}, 유니크한 관찰값 개수 = {df[col].nunique(dropna = False)}, 결측치 비율 = {100 * round(df[col].isnull().sum() / len(df[col]), 4)}")
+#############################################
+# 1. 데이터 검사 및 기본 정보 확인 함수들
+#############################################
 
+def check_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    데이터프레임의 각 컬럼에 대한 기본 정보를 출력하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        분석할 데이터프레임
+    
+    Returns:
+    --------
+    None
+        각 컬럼별 관찰값 개수, 유니크한 값 개수, 결측치 비율을 출력
+    """
+    print(f"<데이터 전체 관찰값 개수 = {len(df)}>", "\n")
+    for col in df.columns:
+        print(f"{col}: 관찰값 개수 = {len(df[col])}, 유니크한 관찰값 개수 = {df[col].nunique(dropna = False)}, 결측치 비율 = {100 * round(df[col].isnull().sum() / len(df[col]), 4)}")
+
+def check_y_by_year(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    연도별 타겟 변수의 통계량을 계산하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        연도별 관찰값 개수, 중앙값, 평균, 표준편차
+    """
+    result = df.groupby('YEAR').agg(
+        num_observations = ('medical_expense', 'count'),
+        median_med_exp = ('medical_expense', 'median'),
+        mean_med_exp = ('medical_expense', 'mean'),
+        std_med_exp = ('medical_expense', np.std)
+    )
+    return result
+
+#############################################
+# 2. 데이터 분할 및 전처리 함수들
+#############################################
 
 def train_test_split_by_year(df: pd.DataFrame, target_col: str = 'medical_expense') -> tuple:
     """
@@ -40,7 +80,9 @@ def train_test_split_by_year(df: pd.DataFrame, target_col: str = 'medical_expens
     Returns:
     --------
     tuple
-        (X_train, X_test, y_train, y_test)
+        (train_data, test_data)
+        - train_data: 2014-2017년 데이터
+        - test_data: 2018년 데이터
     """
     # train 데이터 (2014-2017)
     train_data = move_year_column(df[df['YEAR'].isin([2014, 2015, 2016, 2017])].copy())
@@ -54,6 +96,25 @@ def train_test_split_by_year(df: pd.DataFrame, target_col: str = 'medical_expens
     return train_data, test_data
 
 def X_y_split_by_year(train: pd.DataFrame, test: pd.DataFrame, target_col: str = 'medical_expense', is_panel: bool = True) -> tuple:    
+    """
+    train과 test 데이터를 X(특성)와 y(타겟)로 분리하는 함수
+    
+    Parameters:
+    -----------
+    train : pandas.DataFrame
+        학습 데이터
+    test : pandas.DataFrame
+        테스트 데이터
+    target_col : str
+        타겟 변수명
+    is_panel : bool
+        패널 데이터 여부 (기본값: True)
+    
+    Returns:
+    --------
+    tuple
+        (X_train, X_test, y_train, y_test)
+    """
     # 타겟 변수 분리
     y_train = train[target_col].reset_index(drop=True)
     y_test = test[target_col].reset_index(drop=True)
@@ -72,19 +133,28 @@ def X_y_split_by_year(train: pd.DataFrame, test: pd.DataFrame, target_col: str =
 
     return X_train, X_test, y_train, y_test
 
+#############################################
+# 3. 상관관계 분석 함수들
+#############################################
 
-def check_y_by_year(df: pd.DataFrame) -> pd.DataFrame:
-    result = df.groupby('YEAR').agg(
-    num_observations = ('medical_expense', 'count'),
-    median_med_exp = ('medical_expense', 'median'),
-    mean_med_exp = ('medical_expense', 'mean'),
-    std_med_exp = ('medical_expense', np.std)
-    )
-    return result
-
-
-def continuous_correlation_test(df, numeric_continuous_cols, target_col):
-    # 1. 수치형 - 연속형 X와 연속형 Y: Pearson 상관분석
+def continuous_correlation_test(df: pd.DataFrame, numeric_continuous_cols: list, target_col: str) -> pd.DataFrame:
+    """
+    연속형 변수와 타겟 변수 간의 상관관계를 분석하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    numeric_continuous_cols : list
+        연속형 변수 컬럼 리스트
+    target_col : str
+        타겟 변수명
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        각 변수별 상관분석 결과 (Pearson 또는 Spearman)
+    """
     results = pd.DataFrame()
     for col in numeric_continuous_cols:
         # 정규성 검정 (Shapiro-Wilk test)
@@ -111,24 +181,23 @@ def continuous_correlation_test(df, numeric_continuous_cols, target_col):
             }
     return results
 
-
-def ordinal_correlation_test(df, categorical_ordinal_cols, target_col):
+def ordinal_correlation_test(df: pd.DataFrame, categorical_ordinal_cols: list, target_col: str) -> pd.DataFrame:
     """
-    범주형(순서형) 변수와 연속형 Y 변수 간의 Spearman 상관분석을 수행하는 함수
+    순서형 변수와 타겟 변수 간의 Spearman 상관분석을 수행하는 함수
     
     Parameters:
     -----------
-    df : DataFrame
-        분석할 데이터프레임
+    df : pandas.DataFrame
+        입력 데이터프레임
     categorical_ordinal_cols : list
-        범주형(순서형) 변수들의 리스트
+        순서형 변수 컬럼 리스트
     target_col : str
         타겟 변수명
     
     Returns:
     --------
-    DataFrame
-        각 변수별 상관분석 결과를 담은 DataFrame
+    pandas.DataFrame
+        각 변수별 Spearman 상관분석 결과
     """
     results = pd.DataFrame()
     
@@ -146,10 +215,9 @@ def ordinal_correlation_test(df, categorical_ordinal_cols, target_col):
     
     return results
 
-
-def analyze_categorical_continuous_relationship(df, categorical_cols, target_col):
+def analyze_categorical_continuous_relationship(df: pd.DataFrame, categorical_cols: list, target_col: str) -> pd.DataFrame:
     """
-    범주형 변수와 연속형 타겟 변수 간의 관계를 분석합니다.
+    범주형 변수와 연속형 타겟 변수 간의 관계를 분석하는 함수
     
     Parameters:
     -----------
@@ -158,12 +226,12 @@ def analyze_categorical_continuous_relationship(df, categorical_cols, target_col
     categorical_cols : list
         범주형 변수 컬럼 리스트
     target_col : str
-        타겟 변수 컬럼명
+        타겟 변수명
     
     Returns:
     --------
     pandas.DataFrame
-        분석 결과
+        각 변수별 분석 결과 (Point-Biserial, ANOVA, Kruskal-Wallis)
     """
     results = {}
     
@@ -241,7 +309,7 @@ def analyze_categorical_continuous_relationship(df, categorical_cols, target_col
                     results[col] = {
                         'type': 'nominal',
                         'test': 'anova',
-                        'correlation': np.sqrt(eta_squared),  # eta-squared의 제곱근을 상관계수로 사용
+                        'correlation': np.sqrt(eta_squared),
                         'effect_size': eta_squared,
                         'p_value': p_value
                     }
@@ -268,30 +336,34 @@ def analyze_categorical_continuous_relationship(df, categorical_cols, target_col
                     'p_value': np.nan
                 }
     
-    return pd.DataFrame(results).T
+    return pd.DataFrame(results)
 
+#############################################
+# 4. 이상치 처리 함수들
+#############################################
 
-def remove_outliers_iqr(df, column='medical_expense', lower_bound=0.25, upper_bound=0.75, multiplier=1.5):
+def remove_outliers_iqr(df: pd.DataFrame, column: str = 'medical_expense', lower_bound: float = 0.25, 
+                        upper_bound: float = 0.75, multiplier: float = 1.5) -> tuple:
     """
     IQR 방법을 사용하여 이상치를 제거하는 함수
     
     Parameters:
     -----------
-    df : pandas DataFrame
+    df : pandas.DataFrame
         입력 데이터프레임
     column : str
-        이상치를 제거할 컬럼명 (기본값: 'TOT_EXP')
+        이상치를 제거할 컬럼명
     lower_bound : float
-        하위 사분위수 경계 (기본값: 0.25)
+        하위 사분위수 경계
     upper_bound : float
-        상위 사분위수 경계 (기본값: 0.75)
+        상위 사분위수 경계
     multiplier : float
-        IQR 곱셈 계수 (기본값: 1.5)
+        IQR 곱셈 계수
     
     Returns:
     --------
     tuple
-        (이상치가 제거된 데이터프레임, 제거된 이상치의 개수, 이상치의 비율)
+        (이상치가 제거된 데이터프레임, 제거된 이상치 개수, 이상치 비율)
     """
     # 원본 데이터의 행 수 저장
     original_len = len(df)
@@ -357,20 +429,20 @@ def remove_outliers_iqr(df, column='medical_expense', lower_bound=0.25, upper_bo
     
     return df_cleaned, removed_count, removed_ratio
 
-def winsorize_data(df, column='medical_expense', lower_percentile=5, upper_percentile=95):
+def winsorize_data(df: pd.DataFrame, column: str='medical_expense', lower_percentile: int=5, upper_percentile: int=95) -> tuple:
     """
     Winsorization을 수행하는 함수
     
     Parameters:
     -----------
-    df : pandas DataFrame
+    df : pandas.DataFrame
         입력 데이터프레임
     column : str
         Winsorization을 수행할 컬럼명
     lower_percentile : float
-        하위 경계 백분위수 (기본값: 5)
+        하위 경계 백분위수
     upper_percentile : float
-        상위 경계 백분위수 (기본값: 95)
+        상위 경계 백분위수
     
     Returns:
     --------
@@ -445,75 +517,148 @@ def winsorize_data(df, column='medical_expense', lower_percentile=5, upper_perce
     
     return df_winsorized, replaced_count, replaced_ratio
 
+#############################################
+# 5. 시계열 특성 생성 함수들
+#############################################
 
-def predict_model(X_test_indexed: pd.DataFrame, X_test: pd.DataFrame, models: list, log_transformed: bool = False):
-    fe_results, lr, xgb, lgb, cat, rf = models
-    used_cols = fe_results.model.exog.vars # 모델 학습 시 실제 사용된 변수들만 추출
-    X_test_aligned = X_test_indexed[used_cols] # 테스트 데이터에 동일한 컬럼 적용
-
-    fe_pred = fe_results.predict(X_test_aligned).squeeze()
-    lr_pred = lr.predict(X_test)
-    xgb_pred = xgb.predict(X_test)
-    lgb_pred = lgb.predict(X_test)
-    cat_pred = cat.predict(X_test)
-    rf_pred = rf.predict(X_test)
-
-    if log_transformed:
-        results = [np.exp(fe_pred), np.exp(lr_pred), np.exp(xgb_pred), np.exp(lgb_pred), np.exp(cat_pred), np.exp(rf_pred)]
-    else:
-        results = [fe_pred, lr_pred, xgb_pred, lgb_pred, cat_pred, rf_pred]
-    return results
-
-def transform_y(y_test, log_transformed = False):
-    if log_transformed:
-        return np.exp(y_test)
-    else:
-        return y_test
-
-# Adjusted R² 계산 함수
-def calculate_adjusted_r2(r2, n, p):
+def create_lag_columns(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
     """
-    n: 샘플 수
-    p: 특성 수
+    지정된 컬럼들의 lag 컬럼을 생성하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        lag 컬럼을 생성할 대상 컬럼들의 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        lag 컬럼이 추가된 데이터프레임
     """
-    return 1 - (1 - r2) * (n - 1) / (n - p - 1)
+    # 데이터프레임 복사
+    result_df = df.copy()
+    
+    # 연도별로 정렬
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
+    
+    # 각 대상 컬럼에 대해 1~4년 전의 lag 컬럼 생성
+    for col in target_cols:
+        for lag in range(1, 5):
+            result_df[f'{col}_lag_{lag}'] = result_df.groupby('PIDWON')[col].shift(lag)
+    
+    # lag 컬럼의 결측치를 0으로 채우기
+    lag_columns = [f'{col}_lag_{i}' for col in target_cols for i in range(1, 5)]
+    result_df[lag_columns] = result_df[lag_columns].fillna(0).astype('float32')
+    
+    return result_df
 
-def calculate_mape(y_true, y_pred):
+def create_rolling_features(df: pd.DataFrame, target_cols: list, windows: list = [2, 3]) -> pd.DataFrame:
     """
-    MAPE(Mean Absolute Percentage Error) 계산
-    수정된 버전: 0이나 음수 값 처리
+    지정된 컬럼들에 대해 rolling statistics를 생성하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        rolling statistics를 생성할 대상 컬럼들의 리스트
+    windows : list
+        rolling window 크기 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        rolling statistics가 추가된 데이터프레임
     """
-    # 실제값이 0이거나 음수인 경우 제외
-    mask = y_true > 0
-    if not np.any(mask):
-        return np.nan
+    result_df = df.copy()
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
     
-    # 양수인 실제값에 대해서만 MAPE 계산
-    mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
-    return mape
+    for col in target_cols:
+        for window in windows:
+            # 이동 평균
+            result_df[f'{col}_rolling_mean_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).mean().astype('float32')
+            )
+            # 이동 표준편차
+            result_df[f'{col}_rolling_std_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).std().astype('float32')
+            )
+            # 이동 최대값
+            result_df[f'{col}_rolling_max_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).max().astype('float32')
+            )
+            # 이동 최소값
+            result_df[f'{col}_rolling_min_{window}'] = result_df.groupby('PIDWON')[col].transform(
+                lambda x: x.rolling(window=window, min_periods=1).min().astype('float32')
+            )
+    
+    return result_df
 
-# 성능 평가를 위한 함수
-def evaluate_model(y_true, y_pred, model_name, X_test):
-    mse = mean_squared_error(y_true, y_pred)
-    rmse = np.sqrt(mse)
-    mae = mean_absolute_error(y_true, y_pred)
-    r2 = r2_score(y_true, y_pred)
-    mape = calculate_mape(y_true, y_pred)
+def create_cumulative_features(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    지정된 컬럼들에 대해 cumulative statistics를 생성하는 함수
     
-    # Adjusted R² 계산
-    n = len(y_true)  # 샘플 수
-    p = X_test.shape[1]  # 특성 수
-    adj_r2 = calculate_adjusted_r2(r2, n, p)
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        cumulative statistics를 생성할 대상 컬럼들의 리스트
     
-    print(f"\n{model_name} 모델 성능 평가:")
-    print(f"RMSE: {rmse:,.1f}")
-    print(f"MAE: {mae:,.1f}")
-    print(f"MAPE: {mape:.2f}%")
-    print(f"Adjusted R2 Score: {adj_r2:.3f}")
+    Returns:
+    --------
+    pandas.DataFrame
+        cumulative statistics가 추가된 데이터프레임
+    """
+    result_df = df.copy()
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
     
-    return mse, rmse, mae, mape, r2, adj_r2
+    for col in target_cols:
+        # 누적 합계
+        result_df[f'{col}_cumsum'] = result_df.groupby('PIDWON')[col].cumsum().astype('float32')
+        # 누적 평균
+        result_df[f'{col}_cummean'] = result_df.groupby('PIDWON')[col].transform(
+            lambda x: x.expanding().mean()
+        ).astype('float32')
+        # 누적 표준편차
+        result_df[f'{col}_cumstd'] = result_df.groupby('PIDWON')[col].transform(
+            lambda x: x.expanding().std()
+        ).astype('float32')
+    
+    return result_df
 
+def create_yoy_features(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
+    """
+    지정된 컬럼들에 대해 전년 대비 변화율을 계산하는 함수
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        입력 데이터프레임
+    target_cols : list
+        변화율을 계산할 대상 컬럼들의 리스트
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        변화율이 추가된 데이터프레임
+    """
+    result_df = df.copy()
+    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
+    
+    for col in target_cols:
+        # 전년 대비 절대적 변화
+        result_df[f'{col}_yoy_diff'] = result_df.groupby('PIDWON')[col].diff().astype('float32')
+        # 전년 대비 변화율 (%)
+        result_df[f'{col}_yoy_pct'] = result_df.groupby('PIDWON')[col].pct_change() * 100
+    
+    return result_df
 
+#############################################
+# 6. 모델 평가 및 예측 함수들
+#############################################
 def apply_lasso_feature_selection(X_train: pd.DataFrame, y_train: pd.Series, alpha: float = 0.01):
     # LASSO 모델 학습
     lasso = Lasso(alpha=0.01)  # alpha 값은 조정 가능
@@ -554,7 +699,153 @@ def apply_lasso_feature_selection(X_train: pd.DataFrame, y_train: pd.Series, alp
     return zero_features['Feature'].tolist()
 
 
-def analyze_feature_importance(model, feature_names, top_n=20, figsize=(12, 8)):
+
+
+def predict_model(X_test_indexed: pd.DataFrame, X_test: pd.DataFrame, models: list, log_transformed: bool = False) -> list:
+    """
+    여러 모델의 예측을 수행하는 함수
+    
+    Parameters:
+    -----------
+    X_test_indexed : pandas.DataFrame
+        인덱스가 있는 테스트 데이터
+    X_test : pandas.DataFrame
+        테스트 데이터
+    models : list
+        예측에 사용할 모델 리스트
+    log_transformed : bool
+        로그 변환 여부
+    
+    Returns:
+    --------
+    list
+        각 모델의 예측값 리스트
+    """
+    fe_results, lr, xgb, lgb, cat, rf = models
+    used_cols = fe_results.model.exog.vars # 모델 학습 시 실제 사용된 변수들만 추출
+    X_test_aligned = X_test_indexed[used_cols] # 테스트 데이터에 동일한 컬럼 적용
+
+    fe_pred = fe_results.predict(X_test_aligned).squeeze()
+    lr_pred = lr.predict(X_test)
+    xgb_pred = xgb.predict(X_test)
+    lgb_pred = lgb.predict(X_test)
+    cat_pred = cat.predict(X_test)
+    rf_pred = rf.predict(X_test)
+
+    if log_transformed:
+        results = [np.exp(fe_pred), np.exp(lr_pred), np.exp(xgb_pred), np.exp(lgb_pred), np.exp(cat_pred), np.exp(rf_pred)]
+    else:
+        results = [fe_pred, lr_pred, xgb_pred, lgb_pred, cat_pred, rf_pred]
+    return results
+
+def transform_y(y_test: np.ndarray, log_transformed: bool = False) -> np.ndarray:
+    """
+    타겟 변수를 변환하는 함수
+    
+    Parameters:
+    -----------
+    y_test : array-like
+        변환할 타겟 변수
+    log_transformed : bool
+        로그 변환 여부
+    
+    Returns:
+    --------
+    array-like
+        변환된 타겟 변수
+    """
+    if log_transformed:
+        return np.exp(y_test)
+    else:
+        return y_test
+
+def calculate_adjusted_r2(r2: float, n: int, p: int) -> float:
+    """
+    Adjusted R²를 계산하는 함수
+    
+    Parameters:
+    -----------
+    r2 : float
+        R² 값
+    n : int
+        샘플 수
+    p : int
+        특성 수
+    
+    Returns:
+    --------
+    float
+        Adjusted R² 값
+    """
+    return 1 - (1 - r2) * (n - 1) / (n - p - 1)
+
+def calculate_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """
+    MAPE(Mean Absolute Percentage Error)를 계산하는 함수
+    
+    Parameters:
+    -----------
+    y_true : array-like
+        실제값
+    y_pred : array-like
+        예측값
+    
+    Returns:
+    --------
+    float
+        MAPE 값
+    """
+    # 실제값이 0이거나 음수인 경우 제외
+    mask = y_true > 0
+    if not np.any(mask):
+        return np.nan
+    
+    # 양수인 실제값에 대해서만 MAPE 계산
+    mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+    return mape
+
+def evaluate_model(y_true: np.ndarray, y_pred: np.ndarray, model_name: str, X_test: pd.DataFrame) -> tuple:
+    """
+    모델의 성능을 평가하는 함수
+    
+    Parameters:
+    -----------
+    y_true : array-like
+        실제값
+    y_pred : array-like
+        예측값
+    model_name : str
+        모델 이름
+    X_test : pandas.DataFrame
+        테스트 데이터
+    
+    Returns:
+    --------
+    tuple
+        (mse, rmse, mae, mape, r2, adj_r2)
+    """
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred)
+    mape = calculate_mape(y_true, y_pred)
+    
+    # Adjusted R² 계산
+    n = len(y_true)  # 샘플 수
+    p = X_test.shape[1]  # 특성 수
+    adj_r2 = calculate_adjusted_r2(r2, n, p)
+    
+    print(f"\n{model_name} 모델 성능 평가:")
+    print(f"RMSE: {rmse:,.1f}")
+    print(f"MAE: {mae:,.1f}")
+    print(f"MAPE: {mape:.2f}%")
+    print(f"Adjusted R2 Score: {adj_r2:.3f}")
+    
+    return mse, rmse, mae, mape, r2, adj_r2
+
+
+def analyze_feature_importance(model: object, feature_names: list, top_n: int = 20, 
+                               figsize: tuple = (12, 8), type: str = 'xgb') -> pd.DataFrame:
     """
     RandomForest 모델의 Feature Importance를 분석하고 시각화하는 함수
     
@@ -608,177 +899,6 @@ def analyze_feature_importance(model, feature_names, top_n=20, figsize=(12, 8)):
     
     # 중요도 기준으로 정렬된 전체 특성 목록 반환
     return feature_importance
-
-
-def create_lag_columns(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
-    """
-    PIDWON을 기준으로 그룹핑하여 지정된 컬럼들의 lag 컬럼을 생성하는 함수
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        입력 데이터프레임
-    target_cols : list
-        lag 컬럼을 생성할 대상 컬럼들의 리스트
-    
-    Returns:
-    --------
-    pandas.DataFrame
-        lag 컬럼이 추가된 데이터프레임
-    """
-    # 데이터프레임 복사
-    result_df = df.copy()
-    
-    # 연도별로 정렬
-    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
-    
-    # 각 대상 컬럼에 대해 1~4년 전의 lag 컬럼 생성
-    for col in target_cols:
-        for lag in range(1, 5):
-            result_df[f'{col}_lag_{lag}'] = result_df.groupby('PIDWON')[col].shift(lag)
-    
-    # lag 컬럼의 결측치를 0으로 채우기
-    lag_columns = [f'{col}_lag_{i}' for col in target_cols for i in range(1, 5)]
-    result_df[lag_columns] = result_df[lag_columns].fillna(0).astype('float32')
-    
-    return result_df
-
-
-def create_rolling_features(df: pd.DataFrame, target_cols: list, windows: list = [2, 3]) -> pd.DataFrame:
-    """
-    지정된 컬럼들에 대해 rolling statistics를 생성하는 함수
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        입력 데이터프레임
-    target_cols : list
-        rolling statistics를 생성할 대상 컬럼들의 리스트
-    windows : list
-        rolling window 크기 리스트 (기본값: [2, 3])
-    
-    Returns:
-    --------
-    pandas.DataFrame
-        rolling statistics가 추가된 데이터프레임
-    """
-    result_df = df.copy()
-    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
-    
-    for col in target_cols:
-        for window in windows:
-            # 이동 평균
-            result_df[f'{col}_rolling_mean_{window}'] = result_df.groupby('PIDWON')[col].transform(
-                lambda x: x.rolling(window=window, min_periods=1).mean().astype('float32')
-            )
-            # 이동 표준편차
-            result_df[f'{col}_rolling_std_{window}'] = result_df.groupby('PIDWON')[col].transform(
-                lambda x: x.rolling(window=window, min_periods=1).std().astype('float32')
-            )
-            # 이동 최대값
-            result_df[f'{col}_rolling_max_{window}'] = result_df.groupby('PIDWON')[col].transform(
-                lambda x: x.rolling(window=window, min_periods=1).max().astype('float32')
-            )
-            # 이동 최소값
-            result_df[f'{col}_rolling_min_{window}'] = result_df.groupby('PIDWON')[col].transform(
-                lambda x: x.rolling(window=window, min_periods=1).min().astype('float32')
-            )
-    
-    return result_df
-
-
-def create_cumulative_features(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
-    """
-    지정된 컬럼들에 대해 cumulative statistics를 생성하는 함수
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        입력 데이터프레임
-    target_cols : list
-        cumulative statistics를 생성할 대상 컬럼들의 리스트
-    
-    Returns:
-    --------
-    pandas.DataFrame
-        cumulative statistics가 추가된 데이터프레임
-    """
-    result_df = df.copy()
-    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
-    
-    for col in target_cols:
-        # 누적 합계
-        result_df[f'{col}_cumsum'] = result_df.groupby('PIDWON')[col].cumsum().astype('float32')
-        # 누적 평균
-        result_df[f'{col}_cummean'] = result_df.groupby('PIDWON')[col].transform(
-            lambda x: x.expanding().mean()
-        ).astype('float32')
-        # 누적 표준편차
-        result_df[f'{col}_cumstd'] = result_df.groupby('PIDWON')[col].transform(
-            lambda x: x.expanding().std()
-        ).astype('float32')
-    
-    return result_df
-
-
-def create_yoy_features(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
-    """
-    지정된 컬럼들에 대해 전년 대비 변화율을 계산하는 함수
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        입력 데이터프레임
-    target_cols : list
-        변화율을 계산할 대상 컬럼들의 리스트
-    
-    Returns:
-    --------
-    pandas.DataFrame
-        변화율이 추가된 데이터프레임
-    """
-    result_df = df.copy()
-    result_df = result_df.sort_values(['PIDWON', 'YEAR'])
-    
-    for col in target_cols:
-        # 전년 대비 절대적 변화
-        result_df[f'{col}_yoy_diff'] = result_df.groupby('PIDWON')[col].diff().astype('float32')
-        # 전년 대비 변화율 (%)
-        result_df[f'{col}_yoy_pct'] = result_df.groupby('PIDWON')[col].pct_change() * 100#.astype('float32')
-    
-    return result_df
-
-
-def create_time_aggregations(df: pd.DataFrame, target_cols: list) -> pd.DataFrame:
-    """
-    지정된 컬럼들에 대해 시간 기반 집계를 생성하는 함수
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        입력 데이터프레임
-    target_cols : list
-        집계를 생성할 대상 컬럼들의 리스트
-    
-    Returns:
-    --------
-    pandas.DataFrame
-        시간 기반 집계가 추가된 데이터프레임
-    """
-    result_df = df.copy()
-    
-    for col in target_cols:
-        # 전체 기간 평균
-        result_df[f'{col}_all_time_mean'] = result_df.groupby('PIDWON')[col].transform('mean').astype('float32')
-        # 전체 기간 표준편차
-        result_df[f'{col}_all_time_std'] = result_df.groupby('PIDWON')[col].transform('std').astype('float32')
-        # 전체 기간 최대값
-        result_df[f'{col}_all_time_max'] = result_df.groupby('PIDWON')[col].transform('max').astype('float32')
-        # 전체 기간 최소값
-        result_df[f'{col}_all_time_min'] = result_df.groupby('PIDWON')[col].transform('min').astype('float32')
-    
-    return result_df
-
 
 def handle_abnormal_values(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
